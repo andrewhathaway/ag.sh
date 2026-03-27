@@ -93,6 +93,7 @@ AGENT_WORKTREE_PARENT="${AGENT_WORKTREE_PARENT:-}"
 AGENT_BRANCH_PREFIX="${AGENT_BRANCH_PREFIX:-agent}"
 AGENT_DEFAULT_LAYOUT="${AGENT_DEFAULT_LAYOUT:-main-horizontal}"
 AGENT_IGNORE_BRANCHES="${AGENT_IGNORE_BRANCHES:-main master develop}"
+AGENT_IDE="${AGENT_IDE:-code}"
 
 # ----------------------------------------------------------------------------
 # Runtime compatibility check
@@ -256,7 +257,16 @@ __ag_require_git() {
 # ----------------------------------------------------------------------------
 __ag_repo_root() {
   if [[ -z "$__AG_CACHE_REPO_ROOT" ]]; then
-    __AG_CACHE_REPO_ROOT="$(git rev-parse --show-toplevel)"
+    # Use --git-common-dir to always resolve to the main repo, even when
+    # the current directory is inside a worktree.
+    local git_common_dir
+    git_common_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+    if [[ -n "$git_common_dir" ]]; then
+      # --git-common-dir returns /path/to/repo/.git -- strip the /.git suffix
+      __AG_CACHE_REPO_ROOT="${git_common_dir%/.git}"
+    else
+      __AG_CACHE_REPO_ROOT="$(git rev-parse --show-toplevel)"
+    fi
   fi
   printf '%s\n' "$__AG_CACHE_REPO_ROOT"
 }
@@ -1589,6 +1599,48 @@ __ag_cmd_cd() {
 }
 
 # ----------------------------------------------------------------------------
+# __ag_cmd_open -- Open a task's worktree in the configured IDE
+# ----------------------------------------------------------------------------
+# Opens the worktree directory in the editor set by AGENT_IDE.
+# Defaults to VS Code ("code"). Other examples:
+#
+#   export AGENT_IDE="cursor"        # Cursor
+#   export AGENT_IDE="zed"           # Zed
+#   export AGENT_IDE="windsurf"      # Windsurf
+#   export AGENT_IDE="idea"          # IntelliJ IDEA
+#   export AGENT_IDE="webstorm"      # WebStorm
+#
+# Usage:
+#   ag open <task>
+# ----------------------------------------------------------------------------
+__ag_cmd_open() {
+  __ag_require_git || return 1
+
+  local task="${1:-}"
+  if [[ -z "$task" ]]; then
+    __ag_err "Usage: ag open <task>"
+    return 1
+  fi
+
+  if ! __ag_worktree_exists "$task"; then
+    __ag_err "No worktree found for '$task'. Use 'ag spawn $task' to create one."
+    return 1
+  fi
+
+  local wt_path
+  wt_path="$(__ag_worktree_path "$task")"
+
+  local ide_cmd="${AGENT_IDE}"
+  if ! command -v "$ide_cmd" >/dev/null 2>&1; then
+    __ag_err "'$ide_cmd' not found. Install it or set AGENT_IDE to your editor command."
+    return 1
+  fi
+
+  __ag_log "Opening '$task' in $ide_cmd"
+  "$ide_cmd" "$wt_path"
+}
+
+# ----------------------------------------------------------------------------
 # __ag_cmd_push -- Push a task's branch to the remote
 # ----------------------------------------------------------------------------
 # Pushes the agent/<task> branch to origin. Sets upstream on first push.
@@ -1730,6 +1782,7 @@ __ag_cmd_help() {
     ${__AG_CYAN}ag rm${__AG_RESET} <t1> [t2 ...] [-f]            Kill + remove worktree + delete branch
     ${__AG_CYAN}ag ls${__AG_RESET}                               List agents with status
     ${__AG_CYAN}ag cd${__AG_RESET} <task>                        cd into a task's worktree
+    ${__AG_CYAN}ag open${__AG_RESET} <task>                      Open worktree in IDE (AGENT_IDE)
     ${__AG_CYAN}ag push${__AG_RESET} <task>                      Push task branch to origin
     ${__AG_CYAN}ag diff${__AG_RESET} <task> [--stat]             Diff task branch vs base branch
     ${__AG_CYAN}ag attach${__AG_RESET}                           Attach to this repo's tmux session
@@ -1761,6 +1814,7 @@ __ag_cmd_help() {
     AGENT_WORKTREE_PARENT  Override worktree location
     AGENT_BRANCH_PREFIX    Branch namespace (default: "agent")
     AGENT_DEFAULT_LAYOUT   Window layout (default: "main-horizontal")
+    AGENT_IDE              IDE command for ag open (default: "code")
     AGENT_IGNORE_BRANCHES  Branches to skip in ag ls when prefix is empty
 
   ${__AG_BOLD}tmux tips:${__AG_RESET}  (prefix is ctrl-b by default)
@@ -1803,6 +1857,7 @@ ag() {
     rm)       __ag_cmd_rm "$@" ;;
     ls)       __ag_cmd_ls "$@" ;;
     cd)       __ag_cmd_cd "$@" ;;
+    open)     __ag_cmd_open "$@" ;;
     push)     __ag_cmd_push "$@" ;;
     diff)     __ag_cmd_diff "$@" ;;
     attach)   __ag_cmd_attach "$@" ;;
@@ -1839,7 +1894,7 @@ ag() {
 # ============================================================================
 
 # -- Subcommand list (shared by both bash and zsh completions) --
-__AG_SUBCOMMANDS="spawn kill rm ls cd push diff attach resume shell layout help"
+__AG_SUBCOMMANDS="spawn kill rm ls cd open push diff attach resume shell layout help"
 
 if [[ -n "${ZSH_VERSION:-}" ]]; then
   # ---- Zsh completion ----
@@ -1852,6 +1907,7 @@ if [[ -n "${ZSH_VERSION:-}" ]]; then
       'rm:Kill window + remove worktree + delete branch'
       'ls:List agents with status'
       'cd:cd into a task worktree'
+      'open:Open worktree in IDE'
       'push:Push task branch to remote'
       'diff:Show diff of task branch vs base'
       'attach:Attach to tmux session'
@@ -1879,7 +1935,7 @@ if [[ -n "${ZSH_VERSION:-}" ]]; then
     local subcmd="${words[2]}"
 
     case "$subcmd" in
-      kill|rm|resume|cd|push|diff|shell)
+      kill|rm|resume|cd|open|push|diff|shell)
         # Complete with existing task names from worktrees
         if git rev-parse --show-toplevel >/dev/null 2>&1; then
           local -a task_list
@@ -1934,7 +1990,7 @@ elif [[ -n "${BASH_VERSION:-}" ]]; then
     local subcmd="${COMP_WORDS[1]}"
 
     case "$subcmd" in
-      kill|rm|resume|cd|push|diff|shell)
+      kill|rm|resume|cd|open|push|diff|shell)
         # Complete with existing task names from worktrees
         if git rev-parse --show-toplevel >/dev/null 2>&1; then
           local task_names

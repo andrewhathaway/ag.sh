@@ -54,6 +54,7 @@ source ~/.ag.sh
 | `ag rm <task> [-f]` | Kill window + remove worktree + delete branch (full cleanup) |
 | `ag ls` | List all agents with colored status |
 | `ag cd <task>` | `cd` into a task's worktree in your current shell |
+| `ag open <task>` | Open a task's worktree in your IDE (`AGENT_IDE`) |
 | `ag push <task>` | Push task branch to origin (before creating a PR) |
 | `ag diff <task> [--stat]` | Show diff of task branch vs base branch |
 | `ag attach` | Attach to this repo's tmux session |
@@ -74,6 +75,7 @@ Set these environment variables before sourcing `ag.sh`:
 | `AGENT_WORKTREE_PARENT` | _(auto)_ | Override where worktrees are stored |
 | `AGENT_BRANCH_PREFIX` | `agent` | Branch namespace (`agent/auth`, `agent/billing`). Set to an empty string for no prefix |
 | `AGENT_DEFAULT_LAYOUT` | `main-horizontal` | Default pane layout for task windows |
+| `AGENT_IDE` | `code` | IDE command for `ag open` (e.g. `cursor`, `zed`, `windsurf`, `idea`) |
 | `AGENT_IGNORE_BRANCHES` | `main master develop` | Branches to exclude from `ag ls` when prefix is empty |
 
 ### Examples
@@ -99,7 +101,7 @@ Tab completion is registered automatically for both bash and zsh:
 - `ag <tab>` -- completes subcommands
 - `ag kill <tab>` -- completes task names from existing worktrees
 - `ag layout <tab>` -- completes layout options
-- Works for: `kill`, `rm`, `cd`, `push`, `diff`, `shell`, `resume`
+- Works for: `kill`, `rm`, `cd`, `open`, `push`, `diff`, `shell`, `resume`
 
 ## Workflow
 
