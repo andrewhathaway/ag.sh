@@ -1,4 +1,4 @@
-# ag.sh
+# ag.sh 👋
 
 CLI based ADE tooling to run multiple Claude Code/AI agents in parallel. Each task get its own isolated git worktree. Spawn, manage, and orchestrate AI-powered development across concurrent tasks.
 
