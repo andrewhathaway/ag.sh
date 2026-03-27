@@ -592,6 +592,69 @@ __ag_session_name() {
 }
 
 # ----------------------------------------------------------------------------
+# __ag_has_previous_session -- Check if the agent CLI has a prior conversation
+# ----------------------------------------------------------------------------
+# Checks for a resumable conversation in the given working directory.
+# Supports claude (~/.claude/projects/<encoded>/) and codex (~/.codex/sessions/).
+#
+# Arguments:
+#   $1 - absolute path to the working directory (worktree)
+#
+# Returns:
+#   0 if a previous session exists, 1 otherwise
+# ----------------------------------------------------------------------------
+__ag_has_previous_session() {
+  local dir="$1"
+  local cli_base
+  cli_base="$(basename "${AGENT_CLI%% *}")"
+
+  case "$cli_base" in
+    claude)
+      # Claude Code encodes project paths by replacing / and . with -
+      local encoded="${dir//\//-}"
+      encoded="${encoded//./-}"
+      local project_dir="${HOME}/.claude/projects/${encoded}"
+      [[ -d "$project_dir" ]] && compgen -G "${project_dir}/*.jsonl" >/dev/null 2>&1
+      ;;
+    codex)
+      # Codex stores sessions globally under ~/.codex/sessions/ with cwd in the JSONL.
+      # A lightweight check: see if any session file references this directory.
+      local sessions_dir="${HOME}/.codex/sessions"
+      [[ -d "$sessions_dir" ]] && grep -rlq "\"cwd\":\"${dir}\"" "$sessions_dir" 2>/dev/null
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+# __ag_resume_cmd -- Build the CLI command to resume a previous conversation
+# ----------------------------------------------------------------------------
+# Returns the full command string to continue the most recent conversation
+# in the current directory, or empty string if the CLI doesn't support it.
+#
+# Arguments:
+#   $1 - absolute path to the working directory (worktree)
+# ----------------------------------------------------------------------------
+__ag_resume_cmd() {
+  local wt_path="$1"
+  local cli_base
+  cli_base="$(basename "${AGENT_CLI%% *}")"
+
+  case "$cli_base" in
+    claude)
+      printf '%s\n' "cd $(printf '%q' "$wt_path") && ${AGENT_CLI} --continue; exec ${SHELL}"
+      ;;
+    codex)
+      printf '%s\n' "cd $(printf '%q' "$wt_path") && codex resume --last; exec ${SHELL}"
+      ;;
+    *)
+      # Unknown CLI -- no resume support, start fresh
+      printf '%s\n' ""
+      ;;
+  esac
+}
+
 # __ag_session_exists -- Check if the tmux session exists
 # ----------------------------------------------------------------------------
 # Returns 0 if the session is alive, 1 otherwise.
@@ -754,12 +817,23 @@ __ag_spawn_task_window() {
   wt_path="$(__ag_worktree_path "$task")"
   dir_name="$(__ag_task_to_dirname "$task")"
 
-  # Build the claude command string
+  # Build the agent CLI command string
   # We cd into the worktree, run the agent CLI, then fall through to a shell
   if [[ -n "$prompt" ]]; then
     cmd="cd $(printf '%q' "$wt_path") && ${AGENT_CLI} $(printf '%q' "$prompt"); exec ${SHELL}"
   else
-    cmd="cd $(printf '%q' "$wt_path") && ${AGENT_CLI}; exec ${SHELL}"
+    # No prompt -- check if there's a previous conversation to resume.
+    # This picks up right where the agent left off after a reboot/crash.
+    local resume_cmd
+    resume_cmd=""
+    if __ag_has_previous_session "$wt_path"; then
+      resume_cmd="$(__ag_resume_cmd "$wt_path")"
+    fi
+    if [[ -n "$resume_cmd" ]]; then
+      cmd="$resume_cmd"
+    else
+      cmd="cd $(printf '%q' "$wt_path") && ${AGENT_CLI}; exec ${SHELL}"
+    fi
   fi
 
   # Create the window. Two paths:
