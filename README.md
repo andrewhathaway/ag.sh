@@ -1,6 +1,6 @@
-# ag.sh 👋
+# 🛠️ ag.sh
 
-CLI based ADE tooling to run multiple Claude Code/AI agents in parallel. Each task get its own isolated git worktree. Spawn, manage, and orchestrate AI-powered development across concurrent tasks.
+Command line ADE tooling to run multiple Claude Code/AI agents in parallel. Each task get its own isolated git worktree. Spawn, manage, and orchestrate AI-powered development across concurrent tasks.
 
 One command gives you a git worktree, a branch, a tmux window with the agent running on top and a shell underneath. Spawn as many as you need. Detach, come back tomorrow, and everything is still there.
 
@@ -10,6 +10,7 @@ One command gives you a git worktree, a branch, a tmux window with the agent run
 - **One command interface.** `ag spawn`, `ag kill`, `ag rm`, `ag ls`. That's it.
 
 ```bash
+# Get started with...
 ag spawn auth --prompt "Fix the JWT refresh token bug"
 ag spawn billing onboarding
 ```
@@ -163,8 +164,6 @@ ag kill auth
 # Later, bring it back
 ag resume auth
 ```
-
-
 
 ## Architecture
 
