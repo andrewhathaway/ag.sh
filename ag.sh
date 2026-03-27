@@ -582,7 +582,13 @@ __ag_list_agent_worktrees() {
 # Same as the repo directory name. Each repo gets its own session.
 # ----------------------------------------------------------------------------
 __ag_session_name() {
-  __ag_repo_name
+  local name
+  name="$(__ag_repo_name)"
+  # tmux silently replaces dots and colons with underscores in session names;
+  # mirror that so our targets match what tmux actually creates
+  name="${name//./_}"
+  name="${name//:/_}"
+  printf '%s\n' "$name"
 }
 
 # ----------------------------------------------------------------------------
@@ -594,7 +600,7 @@ __ag_session_name() {
 __ag_session_exists() {
   local session
   session="$(__ag_session_name)"
-  command -v tmux >/dev/null 2>&1 && tmux has-session -t "$session" 2>/dev/null
+  command -v tmux >/dev/null 2>&1 && tmux has-session -t "=$session" 2>/dev/null
 }
 
 # ----------------------------------------------------------------------------
@@ -634,7 +640,7 @@ __ag_window_for_task() {
   fi
 
   # Check if a window with this name exists in the session
-  if tmux list-windows -t "$session" -F '#{window_name}' 2>/dev/null | grep -qx "$dir_name"; then
+  if tmux list-windows -t "=$session" -F '#{window_name}' 2>/dev/null | grep -qx "$dir_name"; then
     printf '%s:%s\n' "$session" "$dir_name"
     return 0
   fi
@@ -676,7 +682,7 @@ __ag_pane_for_task() {
       printf '%s\n' "$pane_id"
       return 0
     fi
-  done < <(tmux list-panes -s -t "$session" -F '#{pane_id}|#{pane_title}' 2>/dev/null)
+  done < <(tmux list-panes -s -t "=$session" -F '#{pane_id}|#{pane_title}' 2>/dev/null)
 
   return 1
 }
@@ -762,14 +768,14 @@ __ag_spawn_task_window() {
   if ! __ag_session_exists; then
     # Create the session with this task as the first window
     __ag_log "Creating tmux session '$session' with window '$dir_name'"
-    tmux new-session -d -s "$session" -n "$dir_name" -c "$wt_path" 2>/dev/null || {
+    tmux new-session -d -s "$session" -n "$dir_name" -c "$wt_path" -x 200 -y 50 || {
       __ag_err "Failed to create tmux session '$session'"
       return 1
     }
   else
     # Session exists, add a new window
     __ag_log "Creating window '$dir_name' in session '$session'"
-    tmux new-window -t "$session:" -n "$dir_name" -c "$wt_path" 2>/dev/null || {
+    tmux new-window -t "=$session:" -n "$dir_name" -c "$wt_path" || {
       __ag_err "Failed to create window '$dir_name'"
       return 1
     }
@@ -778,7 +784,7 @@ __ag_spawn_task_window() {
   # The new window has one pane -- this becomes the claude pane (top)
   # Get its pane ID so we can target it
   local claude_pane
-  claude_pane="$(tmux list-panes -t "${session}:${dir_name}" -F '#{pane_id}' 2>/dev/null | head -1)"
+  claude_pane="$(tmux list-panes -t "=${session}:${dir_name}" -F '#{pane_id}' | head -1)"
 
   # Set the title and send the claude command
   tmux select-pane -t "$claude_pane" -T "agent:${task}"
@@ -787,8 +793,9 @@ __ag_spawn_task_window() {
   tmux send-keys -t "$claude_pane" " $cmd" Enter
 
   # Split the window vertically to create the shell pane (bottom)
-  # Give the shell pane ~30% of the height
-  tmux split-window -v -t "${session}:${dir_name}" -l '30%' -c "$wt_path" 2>/dev/null || {
+  # Give the shell pane ~30% of the height; fall back to minimal split
+  tmux split-window -v -t "=${session}:${dir_name}" -l '30%' -c "$wt_path" || \
+  tmux split-window -v -t "=${session}:${dir_name}" -l 5 -c "$wt_path" || {
     __ag_warn "Failed to split window for shell pane (window still has claude)"
     return 0
   }
@@ -829,8 +836,8 @@ __ag_kill_task_window() {
   fi
 
   # Check if the window exists before trying to kill it
-  if tmux list-windows -t "$session" -F '#{window_name}' 2>/dev/null | grep -qx "$dir_name"; then
-    tmux kill-window -t "${session}:${dir_name}" 2>/dev/null || true
+  if tmux list-windows -t "=$session" -F '#{window_name}' 2>/dev/null | grep -qx "$dir_name"; then
+    tmux kill-window -t "=${session}:${dir_name}" 2>/dev/null || true
     __ag_log "Killed window for '$task'"
   fi
 
@@ -861,7 +868,7 @@ __ag_apply_layout() {
 
   if [[ -n "$dir_name" ]]; then
     # Apply to a specific task window
-    tmux select-layout -t "${session}:${dir_name}" "$layout" 2>/dev/null || true
+    tmux select-layout -t "=${session}:${dir_name}" "$layout" 2>/dev/null || true
   else
     # Apply to the current window
     tmux select-layout "$layout" 2>/dev/null || true
@@ -969,7 +976,7 @@ __ag_cmd_spawn() {
     session="$(__ag_session_name)"
     if __ag_session_exists; then
       __ag_log "Attaching to session '$session'..."
-      tmux attach -t "$session"
+      tmux attach -t "=$session"
     fi
   fi
 }
@@ -1206,7 +1213,7 @@ __ag_cmd_ls() {
         ptask="${pane_title#agent:}"
         pane_cmd_map[$ptask]="$pane_cmd"
       fi
-    done < <(tmux list-panes -s -t "$session" -F '#{pane_id}|#{pane_title}|#{pane_current_command}' 2>/dev/null)
+    done < <(tmux list-panes -s -t "=$session" -F '#{pane_id}|#{pane_title}|#{pane_current_command}' 2>/dev/null)
   fi
 
   # Count active agents and determine state for each task
@@ -1301,10 +1308,10 @@ __ag_cmd_attach() {
   if [[ -n "${TMUX:-}" ]]; then
     # Already inside tmux -- switch to the session instead of attaching
     __ag_log "Switching to session '$session'"
-    tmux switch-client -t "$session"
+    tmux switch-client -t "=$session"
   else
     __ag_log "Attaching to session '$session'"
-    tmux attach -t "$session"
+    tmux attach -t "=$session"
   fi
 }
 
@@ -1385,7 +1392,7 @@ __ag_cmd_resume() {
     local session
     session="$(__ag_session_name)"
     if __ag_session_exists; then
-      tmux attach -t "$session"
+      tmux attach -t "=$session"
     fi
   fi
 }
@@ -1439,7 +1446,7 @@ __ag_cmd_shell() {
 
     # Attach if outside tmux
     if [[ -z "${TMUX:-}" ]]; then
-      tmux attach -t "$session"
+      tmux attach -t "=$session"
     fi
     return 0
   fi
@@ -1452,7 +1459,7 @@ __ag_cmd_shell() {
       return 1
     }
   else
-    tmux new-window -t "$session:" -n "$dir_name" -c "$wt_path" 2>/dev/null || {
+    tmux new-window -t "=$session:" -n "$dir_name" -c "$wt_path" 2>/dev/null || {
       __ag_err "Failed to create window '$dir_name'"
       return 1
     }
@@ -1462,14 +1469,14 @@ __ag_cmd_shell() {
   # We use "agent:<task>" even for shell-only so status detection works
   # (it will show as "idle" since no claude is running)
   local pane_id
-  pane_id="$(tmux list-panes -t "${session}:${dir_name}" -F '#{pane_id}' 2>/dev/null | head -1)"
+  pane_id="$(tmux list-panes -t "=${session}:${dir_name}" -F '#{pane_id}' 2>/dev/null | head -1)"
   tmux select-pane -t "$pane_id" -T "agent:${task}"
 
   __ag_log "Opened shell for '$task' in $wt_path"
 
   # Attach if outside tmux
   if [[ -z "${TMUX:-}" ]]; then
-    tmux attach -t "$session"
+    tmux attach -t "=$session"
   fi
 }
 
