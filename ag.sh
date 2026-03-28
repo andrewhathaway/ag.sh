@@ -296,12 +296,12 @@ __ag_default_base() {
   root="$(__ag_repo_root)"
 
   if git -C "$root" show-ref --verify --quiet refs/heads/main; then
-    echo "main"
+    printf '%s\n' "main"
   elif git -C "$root" show-ref --verify --quiet refs/heads/master; then
-    echo "master"
+    printf '%s\n' "master"
   else
     # Fallback: whatever branch is currently checked out
-    git -C "$root" symbolic-ref --short HEAD 2>/dev/null || echo "main"
+    git -C "$root" symbolic-ref --short HEAD 2>/dev/null || printf '%s\n' "main"
   fi
 }
 
@@ -719,79 +719,6 @@ __ag_window_for_task() {
   fi
 
   return 1
-}
-
-# ----------------------------------------------------------------------------
-# __ag_pane_for_task -- Find the claude (agent) pane ID for a task
-# ----------------------------------------------------------------------------
-# Searches the task's window for the pane titled "agent:<task>".
-# This is the top pane where claude runs.
-#
-# Arguments:
-#   $1 - task name
-#
-# Output:
-#   The pane ID (e.g., %42) if found, or empty string if not.
-#
-# Returns:
-#   0 if pane found, 1 if not found
-# ----------------------------------------------------------------------------
-__ag_pane_for_task() {
-  local task="$1"
-  local session pane_id title target_title
-
-  session="$(__ag_session_name)"
-  target_title="agent:${task}"
-
-  # If the session doesn't exist, there's definitely no pane
-  if ! __ag_session_exists; then
-    return 1
-  fi
-
-  # List all panes across all windows in the session (-s flag)
-  # Format: pane_id|pane_title
-  while IFS='|' read -r pane_id title; do
-    if [[ "$title" == "$target_title" ]]; then
-      printf '%s\n' "$pane_id"
-      return 0
-    fi
-  done < <(tmux list-panes -s -t "=$session" -F '#{pane_id}|#{pane_title}' 2>/dev/null)
-
-  return 1
-}
-
-# ----------------------------------------------------------------------------
-# __ag_pane_status -- Determine what's running in a pane
-# ----------------------------------------------------------------------------
-# Checks the current command of a pane to determine if the agent CLI
-# is running, or if the pane has fallen through to a shell.
-#
-# Arguments:
-#   $1 - pane ID (e.g., %42)
-#
-# Output (printed to stdout):
-#   "active" - the agent CLI is running
-#   "idle"   - a shell is running (agent exited, fell through)
-#   "unknown" - something else is running
-# ----------------------------------------------------------------------------
-__ag_pane_status() {
-  local pane_id="$1"
-  local current_cmd cli_name
-
-  # Get the basename of the configured CLI for comparison
-  # e.g., "claude --dangerously-skip-permissions" -> "claude"
-  cli_name="$(basename "${AGENT_CLI%% *}")"
-
-  # Query the pane's current foreground command
-  current_cmd="$(tmux display-message -t "$pane_id" -p '#{pane_current_command}' 2>/dev/null)"
-
-  if [[ "$current_cmd" == "$cli_name" ]]; then
-    echo "active"
-  elif [[ "$current_cmd" == "zsh" || "$current_cmd" == "bash" || "$current_cmd" == "sh" ]]; then
-    echo "idle"
-  else
-    echo "unknown"
-  fi
 }
 
 # ----------------------------------------------------------------------------
@@ -1336,15 +1263,21 @@ __ag_cmd_ls() {
   # local inside a loop can leak output on subsequent iterations.
   local branch wt_path state_display rel_wt
   # Compute the repo parent once (not per-iteration) for relative paths
-  local repo_parent
-  repo_parent="$(dirname "$(__ag_repo_root)")"
+  local repo_parent repo_root
+  repo_root="$(__ag_repo_root)"
+  repo_parent="$(dirname "$repo_root")"
   for task in "${tasks[@]}"; do
     state="${task_state_map[$task]}"
     branch="$(__ag_branch_name "$task")"
     wt_path="$(__ag_worktree_path "$task")"
 
-    # Make worktree path relative for readability
-    rel_wt="..${wt_path#$repo_parent}"
+    # Make worktree path relative for readability when under the repo parent,
+    # otherwise show the absolute path (e.g. custom AGENT_WORKTREE_PARENT)
+    if [[ "$wt_path" == "${repo_parent}/"* ]]; then
+      rel_wt="..${wt_path#$repo_parent}"
+    else
+      rel_wt="$wt_path"
+    fi
 
     # Format state with color and bullet
     case "$state" in
@@ -1711,6 +1644,11 @@ __ag_cmd_diff() {
 
   if [[ -z "$task" ]]; then
     __ag_err "Usage: ag diff <task> [--stat]"
+    return 1
+  fi
+
+  if ! __ag_worktree_exists "$task"; then
+    __ag_err "No worktree found for '$task'. Use 'ag spawn $task' to create one."
     return 1
   fi
 

@@ -6,7 +6,7 @@ Thank you for your interest in contributing to the ag.sh repository. Please read
 
 Please provide changes through a pull request with a detailed titled and description that explains the changes and provides context.
 
-Pull requests will require review and approval, as well as requiring the linting, formatting and testing checks to pass.
+Pull requests will require review and approval.
 
 ## Reporting a Problem
 
