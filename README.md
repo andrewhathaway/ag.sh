@@ -1,12 +1,14 @@
 # 🛠️ ag.sh
 
-Command line ADE tooling to run multiple Claude Code/AI agents in parallel. Each task get its own isolated git worktree. Spawn, manage, and orchestrate AI-powered development across concurrent tasks.
+![Banner Image - Illustration of tmux session with spawned agent windows](./banner.svg)
+
+Command line ADE tooling to run multiple Claude Code/AI agents in parallel. Each task gets its own isolated git worktree. Spawn, manage, and orchestrate AI-powered development across concurrent tasks.
 
 One command gives you a git worktree, a branch, a tmux window with the agent running on top and a shell underneath. Spawn as many as you need. Detach, come back tomorrow, and everything is still there.
 
 - **Isolated by default.** Each task gets its own branch and worktree. Agents can't step on each other's changes.
 - **Persistent.** tmux keeps agents running when you close your terminal. Git worktrees survive reboots. `ag resume` rebuilds everything from disk. If your tmux session gets killed, ag will attempt to resume a previous conversation for `claude` and `codex` users
-- **Zero state files.** Git worktrees _are_ the state. No databases, no config files, no daemon. If tmux dies, the worktrees are still there.
+- **Stateless by design.** Git worktrees _are_ the state. No databases, no config files, no daemon. If tmux dies, the worktrees are still there.
 - **One command interface.** `ag spawn`, `ag kill`, `ag rm`, `ag ls`. That's it.
 
 ```bash
