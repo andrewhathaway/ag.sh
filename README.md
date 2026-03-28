@@ -2,14 +2,16 @@
 
 ![Banner Image - Illustration of tmux session with spawned agent windows](./banner.svg)
 
-Command line ADE tooling to run multiple Claude Code/AI agents in parallel. Each task gets its own isolated git worktree. Spawn, manage, and orchestrate AI-powered development across concurrent tasks.
+Command-line ADE tooling to run multiple Claude Code/AI agents in parallel—each in its own isolated git worktree.
 
-One command gives you a git worktree, a branch, a tmux window with the agent running on top and a shell underneath. Spawn as many as you need. Detach, come back tomorrow, and everything is still there.
+Spawn, manage, and orchestrate AI-powered development across concurrent tasks without stepping on your own changes.
 
-- **Isolated by default.** Each task gets its own branch and worktree. Agents can't step on each other's changes.
-- **Persistent.** tmux keeps agents running when you close your terminal. Git worktrees survive reboots. `ag resume` rebuilds everything from disk. If your tmux session gets killed, ag will attempt to resume a previous conversation for `claude` and `codex` users
-- **Stateless by design.** Git worktrees _are_ the state. No databases, no config files, no daemon. If tmux dies, the worktrees are still there.
-- **One command interface.** `ag spawn`, `ag kill`, `ag rm`, `ag ls`. That's it.
+One command gives you everything: a git worktree, a branch, and a tmux window with the agent running on top and a shell underneath. Spawn as many as you need. Detach, come back tomorrow, and everything is still there.
+
+- **Isolated by default.** Every task runs in its own branch and worktree. Agents can't collide or overwrite each other.
+- **Persistent.** tmux keeps agents alive when you close your terminal. Worktrees survive reboots. `ag resume` rebuilds everything from disk. If a tmux session dies, `ag` attempts to resume conversations for `claude` and `codex`.
+- **Stateless by design.** Git worktrees _are_ the state. No databases, no config files, no daemon. If tmux disappears, your work is still intact.
+- **One command interface.** `ag spawn`, `ag kill`, `ag open`, `ag rm`, `ag ls`. Nothing more.
 
 ```bash
 # Get started with...
