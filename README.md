@@ -8,12 +8,12 @@ Command-line ADE tooling to run multiple Claude Code/AI agents in parallel - eac
 
 Spawn, manage, and orchestrate AI-powered development across concurrent tasks without stepping on your own changes.
 
-One command gives you everything: a git worktree, a branch, and a tmux window with the agent running on top and a shell underneath. Spawn as many as you need. Detach, come back tomorrow, and everything is still there.
+One command gives you everything: a git worktree, a branch, and a tmux window with the agent and shell running in the same window. Spawn as many as you need. Detach, come back tomorrow, and everything is still there.
 
-- **Isolated** Every task runs in its own branch and worktree. Agents can't collide or overwrite each other.
-- **Persistent** tmux keeps agents alive when you close your terminal. Worktrees survive reboots. `ag resume` rebuilds everything from disk. If a tmux session dies, `ag` attempts to resume conversations for `claude` and `codex`.
-- **Stateless** Git worktrees _are_ the state. No databases, no config files, no daemon. If tmux disappears, your work is still intact.
-- **Combined API** One CLI tool - `ag spawn`, `ag kill`, `ag open`, `ag rm`, `ag ls`. Nothing more.
+- **Isolated** - Every task runs in its own branch and worktree. Agents can't collide or overwrite each other.
+- **Persistent** - tmux keeps agents alive when you close your terminal. Worktrees survive reboots. `ag resume` rebuilds everything from disk. If a tmux session dies, `ag` attempts to resume conversations for `claude` and `codex`.
+- **Stateless** - Git worktrees _are_ the state. No databases, no config files, no daemon. If tmux disappears, your work is still intact.
+- **Combined API** - One CLI tool - `ag spawn`, `ag kill`, `ag open`, `ag rm`, `ag ls`. Nothing more.
 
 ```bash
 # Get started with...
