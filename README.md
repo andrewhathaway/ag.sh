@@ -1,10 +1,10 @@
 # 🛠️ ag.sh
 
 <p align="center">
-  <img src="./banner.svg" alt="ag.sh — tmux session with spawned agent windows" width="100%">
+  <img src="./banner.svg" alt="ag.sh - tmux session with spawned agent windows" width="100%">
 </p>
 
-Command-line ADE tooling to run multiple Claude Code/AI agents in parallel—each in its own isolated git worktree.
+Command-line ADE tooling to run multiple Claude Code/AI agents in parallel - each in its own isolated git worktree.
 
 Spawn, manage, and orchestrate AI-powered development across concurrent tasks without stepping on your own changes.
 

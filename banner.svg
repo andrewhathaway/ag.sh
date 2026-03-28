@@ -4,16 +4,14 @@
       <stop offset="0%" stop-color="#0d1117"/>
       <stop offset="100%" stop-color="#161b22"/>
     </linearGradient>
-    <filter id="shadow">
-      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000" flood-opacity="0.4"/>
-    </filter>
   </defs>
 
   <!-- Background -->
   <rect width="720" height="320" fill="url(#bg)" rx="10"/>
 
   <!-- ===== Window 3 (back): onboarding — just title bar visible ===== -->
-  <g transform="translate(28, 16)" filter="url(#shadow)">
+  <g transform="translate(28, 16)">
+    <rect x="2" y="2" width="664" height="26" rx="7" fill="#000" opacity="0.3"/>
     <rect width="664" height="26" rx="7" fill="#1c2129" stroke="#30363d" stroke-width="1"/>
     <circle cx="14" cy="13" r="4" fill="#f85149" opacity="0.5"/>
     <circle cx="27" cy="13" r="4" fill="#d29922" opacity="0.5"/>
@@ -23,7 +21,8 @@
   </g>
 
   <!-- ===== Window 2 (middle): billing — title bar + a sliver ===== -->
-  <g transform="translate(22, 30)" filter="url(#shadow)">
+  <g transform="translate(22, 30)">
+    <rect x="2" y="2" width="676" height="34" rx="7" fill="#000" opacity="0.3"/>
     <rect width="676" height="34" rx="7" fill="#151b23" stroke="#30363d" stroke-width="1"/>
     <circle cx="14" cy="13" r="4" fill="#f85149" opacity="0.6"/>
     <circle cx="27" cy="13" r="4" fill="#d29922" opacity="0.6"/>
@@ -33,7 +32,9 @@
   </g>
 
   <!-- ===== Window 1 (front): auth — full window ===== -->
-  <g transform="translate(16, 48)" filter="url(#shadow)">
+  <g transform="translate(16, 48)">
+    <!-- Shadow (offset rect, no filter) -->
+    <rect x="3" y="3" width="688" height="240" rx="8" fill="#000" opacity="0.35"/>
     <!-- Window frame -->
     <rect width="688" height="240" rx="8" fill="#0d1117" stroke="#30363d" stroke-width="1.5"/>
     <!-- Title bar -->
@@ -47,7 +48,7 @@
       <animate attributeName="opacity" values="1;0.3;1" dur="2s" repeatCount="indefinite"/>
     </circle>
 
-    <!-- ===== Agent pane (top ~65%) ===== -->
+    <!-- ===== Agent pane (top) ===== -->
     <text x="18" y="50" fill="#58a6ff" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10.5" font-weight="bold">claude</text>
     <text font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10">
       <tspan x="18" y="70" fill="#7ee787">$ </tspan><tspan fill="#c9d1d9">Fixing JWT refresh token bug in middleware/auth.ts</tspan>
@@ -65,7 +66,7 @@
     <!-- ===== Divider ===== -->
     <line x1="12" y1="168" x2="676" y2="168" stroke="#30363d" stroke-width="1"/>
 
-    <!-- ===== Shell pane (bottom ~35%) ===== -->
+    <!-- ===== Shell pane (bottom) ===== -->
     <text x="18" y="186" fill="#d2a8ff" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10.5" font-weight="bold">shell</text>
     <text font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="10">
       <tspan x="18" y="204" fill="#3fb950">~/myapp </tspan><tspan fill="#8b949e">npm test -- --watch auth</tspan>
