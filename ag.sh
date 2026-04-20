@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# ag.sh -- Agentic Development Environment
+# ag.sh v1.1 -- Agentic Development Environment
 # ============================================================================
 #
 # Compatible with bash 4+ and zsh 5+. Sourced, not executed directly.
@@ -68,9 +68,17 @@
 #   Branch for task "auth" -> agent/auth
 #
 # AGENT_DEFAULT_LAYOUT:
-#   Default tmux layout for the two panes within each task window.
-#   Default: "main-horizontal" (claude on top, shell on bottom).
+#   Default tmux layout used by `ag layout`.
+#   Default: "main-horizontal".
 #   Options: main-horizontal, main-vertical, even-horizontal, even-vertical
+#
+# AGENT_SHELL_HEIGHT_PERCENT:
+#   Percent of the task window height to use for shell panes during spawn.
+#   Default: 30
+#
+# AGENT_SHELL_PANES:
+#   Number of shell panes to create side-by-side below the agent pane.
+#   Default: 1
 #
 # AGENT_IGNORE_BRANCHES:
 #   Space-separated list of branch names to exclude from `ag ls` when
@@ -99,11 +107,14 @@ AGENT_BRANCH_PREFIX="${AGENT_BRANCH_PREFIX:-agent}"
 AGENT_DEFAULT_LAYOUT="${AGENT_DEFAULT_LAYOUT:-main-horizontal}"
 AGENT_IGNORE_BRANCHES="${AGENT_IGNORE_BRANCHES:-main master develop}"
 AGENT_IDE="${AGENT_IDE:-code}"
+AGENT_SHELL_HEIGHT_PERCENT="${AGENT_SHELL_HEIGHT_PERCENT:-30}"
+AGENT_SHELL_PANES="${AGENT_SHELL_PANES:-1}"
 
 # Repository-local hook run once before a newly spawned task is shown in tmux.
 __AG_PREPARE_SCRIPT=".agrc"
 __AG_LAST_WORKTREE_CREATED=0
 __AG_LAST_BRANCH_CREATED=0
+__AG_LAST_SHELL_PANES_CREATED=0
 
 # ----------------------------------------------------------------------------
 # Runtime compatibility check
@@ -699,9 +710,9 @@ __ag_list_agent_worktrees() {
 # Architecture:
 #   - One tmux SESSION per repo (named after the repo directory)
 #   - One tmux WINDOW per task (named after the task)
-#   - Each window has TWO PANES:
-#       Top pane:    claude CLI (title: "agent:<task>")
-#       Bottom pane: plain shell (title: "shell:<task>")
+#   - Each window has one agent pane and configured shell pane(s):
+#       Top pane:    agent CLI (title: "agent:<task>")
+#       Bottom pane: plain shell (title: "shell:<task>" or "shell:<task>:N")
 #
 # This gives each task its own self-contained workspace. Switch between
 # tasks with ctrl-a w (window picker) or ctrl-a n/p (next/prev).
@@ -811,6 +822,45 @@ __ag_require_tmux() {
 }
 
 # ----------------------------------------------------------------------------
+# __ag_is_uint -- Check whether a value is an unsigned integer
+# ----------------------------------------------------------------------------
+__ag_is_uint() {
+  case "${1:-}" in
+    ''|*[!0-9]*) return 1 ;;
+    0*) [[ "$1" == "0" ]] || return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# ----------------------------------------------------------------------------
+# __ag_validate_spawn_layout_config -- Validate tmux pane layout settings
+# ----------------------------------------------------------------------------
+# AGENT_SHELL_HEIGHT_PERCENT controls the bottom shell region height.
+# AGENT_SHELL_PANES controls how many shell panes are created in that region.
+# ----------------------------------------------------------------------------
+__ag_validate_spawn_layout_config() {
+  if ! __ag_is_uint "$AGENT_SHELL_HEIGHT_PERCENT"; then
+    __ag_err "AGENT_SHELL_HEIGHT_PERCENT must be an integer from 10 to 80."
+    return 1
+  fi
+
+  if [[ "$AGENT_SHELL_HEIGHT_PERCENT" -lt 10 || "$AGENT_SHELL_HEIGHT_PERCENT" -gt 80 ]]; then
+    __ag_err "AGENT_SHELL_HEIGHT_PERCENT must be between 10 and 80."
+    return 1
+  fi
+
+  if ! __ag_is_uint "$AGENT_SHELL_PANES"; then
+    __ag_err "AGENT_SHELL_PANES must be an integer from 1 to 8."
+    return 1
+  fi
+
+  if [[ "$AGENT_SHELL_PANES" -lt 1 || "$AGENT_SHELL_PANES" -gt 8 ]]; then
+    __ag_err "AGENT_SHELL_PANES must be between 1 and 8."
+    return 1
+  fi
+}
+
+# ----------------------------------------------------------------------------
 # __ag_window_for_task -- Check if a tmux window exists for a task
 # ----------------------------------------------------------------------------
 # Each task gets its own window, named after the task's directory name.
@@ -846,10 +896,55 @@ __ag_window_for_task() {
 }
 
 # ----------------------------------------------------------------------------
+# __ag_create_shell_panes -- Create shell panes beneath the agent pane
+# ----------------------------------------------------------------------------
+# Creates one bottom shell region at AGENT_SHELL_HEIGHT_PERCENT, then splits
+# that region horizontally until AGENT_SHELL_PANES shell panes exist.
+#
+# Arguments:
+#   $1 - task name
+#   $2 - worktree path
+#   $3 - claude/agent pane id
+# ----------------------------------------------------------------------------
+__ag_create_shell_panes() {
+  local task="$1"
+  local wt_path="$2"
+  local claude_pane="$3"
+  local shell_pane new_pane remaining split_percent index
+
+  __AG_LAST_SHELL_PANES_CREATED=0
+
+  if ! shell_pane="$(tmux split-window -v -t "$claude_pane" -l "${AGENT_SHELL_HEIGHT_PERCENT}%" -c "$wt_path" -P -F '#{pane_id}' 2>/dev/null)"; then
+    if ! shell_pane="$(tmux split-window -v -t "$claude_pane" -l 5 -c "$wt_path" -P -F '#{pane_id}' 2>/dev/null)"; then
+      __ag_warn "Failed to split window for shell pane (window still has agent)"
+      return 0
+    fi
+  fi
+
+  tmux select-pane -t "$shell_pane" -T "shell:${task}"
+  __AG_LAST_SHELL_PANES_CREATED=1
+
+  remaining="$AGENT_SHELL_PANES"
+  index=2
+  while [[ "$remaining" -gt 1 ]]; do
+    split_percent=$((100 / remaining))
+    if ! new_pane="$(tmux split-window -h -p "$split_percent" -t "$shell_pane" -c "$wt_path" -P -F '#{pane_id}' 2>/dev/null)"; then
+      __ag_warn "Failed to create shell pane ${index}/${AGENT_SHELL_PANES}"
+      break
+    fi
+
+    tmux select-pane -t "$new_pane" -T "shell:${task}:${index}"
+    __AG_LAST_SHELL_PANES_CREATED=$((__AG_LAST_SHELL_PANES_CREATED + 1))
+    index=$((index + 1))
+    remaining=$((remaining - 1))
+  done
+}
+
+# ----------------------------------------------------------------------------
 # __ag_spawn_task_window -- Create a tmux window with claude + shell panes
 # ----------------------------------------------------------------------------
 # This is the core window creation logic. Each task gets its own window
-# containing two panes:
+# containing one agent pane and one or more shell panes:
 #
 #   ┌──────────────────────────┐
 #   │                          │
@@ -857,8 +952,7 @@ __ag_window_for_task() {
 #   │     title: agent:<task>  │
 #   │                          │
 #   ├──────────────────────────┤
-#   │  shell (bottom pane)     │
-#   │  title: shell:<task>     │
+#   │ shell │ shell │ shell    │
 #   └──────────────────────────┘
 #
 # The claude pane runs: cd <worktree> && <agent_cli> [prompt]; exec $SHELL
@@ -927,24 +1021,13 @@ __ag_spawn_task_window() {
   # (requires HIST_IGNORE_SPACE in zsh or HISTCONTROL=ignorespace in bash)
   tmux send-keys -t "$claude_pane" " $cmd" Enter
 
-  # Split the window vertically to create the shell pane (bottom)
-  # Give the shell pane ~30% of the height; fall back to minimal split
-  tmux split-window -v -t "=${session}:${dir_name}" -l '30%' -c "$wt_path" || \
-  tmux split-window -v -t "=${session}:${dir_name}" -l 5 -c "$wt_path" || {
-    __ag_warn "Failed to split window for shell pane (window still has claude)"
-    return 0
-  }
-
-  # The split-window auto-selects the new (bottom) pane -- set its title
-  tmux select-pane -T "shell:${task}"
+  # Create the configured shell pane region under the agent pane.
+  __ag_create_shell_panes "$task" "$wt_path" "$claude_pane"
 
   # Select the claude pane (top) so it's focused when the user sees the window
   tmux select-pane -t "$claude_pane"
 
-  # Apply the configured layout
-  __ag_apply_layout "" "$dir_name"
-
-  __ag_log "Spawned agent '$task': claude (top) + shell (bottom)"
+  __ag_log "Spawned agent '$task': claude (top) + ${__AG_LAST_SHELL_PANES_CREATED} shell pane(s) (bottom)"
 }
 
 # ----------------------------------------------------------------------------
@@ -983,8 +1066,8 @@ __ag_kill_task_window() {
 # ----------------------------------------------------------------------------
 # __ag_apply_layout -- Apply layout to a task window's panes
 # ----------------------------------------------------------------------------
-# With the per-task window model, each window has exactly two panes
-# (claude + shell). This applies the configured layout to arrange them.
+# With the per-task window model, each window contains the agent pane and any
+# shell panes. This applies a tmux layout to the whole current task window.
 #
 # Arguments:
 #   $1 - optional layout name (main-horizontal, even-vertical, etc.)
@@ -1031,7 +1114,7 @@ __ag_apply_layout() {
 # Behavior:
 #   - Creates the worktree and branch if they don't exist
 #   - Runs optional repository-local .agrc before creating the tmux window
-#   - Creates a tmux window with claude (top) + shell (bottom) panes
+#   - Creates a tmux window with claude (top) + configured shell pane(s)
 #   - If the task already has a window, switches to it instead
 #   - If outside tmux, attaches to the session after spawning
 #   - For multiple tasks, spawns all then attaches once
@@ -1077,6 +1160,8 @@ __ag_cmd_spawn() {
     for first_warn in "${tasks[@]}"; do break; done
     __ag_warn "--prompt will only be applied to the first task ('${first_warn}')"
   fi
+
+  __ag_validate_spawn_layout_config || return 1
 
   # -- Spawn each task --
   local task task_prompt
@@ -1845,7 +1930,7 @@ __ag_cmd_help() {
   ${__AG_BOLD}Commands:${__AG_RESET}
 
     ${__AG_CYAN}ag${__AG_RESET}                                  Show agent status (same as ag ls)
-    ${__AG_CYAN}ag spawn${__AG_RESET} <task> [--prompt "..."]    Create worktree + branch + window, start claude
+    ${__AG_CYAN}ag spawn${__AG_RESET} <task> [--prompt "..."]    Create worktree + window, start agent
     ${__AG_CYAN}ag spawn${__AG_RESET} <t1> <t2> <t3>            Spawn multiple agents at once
     ${__AG_CYAN}ag kill${__AG_RESET} <t1> [t2 ...] [-f]          Kill window(s), keep worktree + branch
     ${__AG_CYAN}ag rm${__AG_RESET} <t1> [t2 ...] [-f]            Kill + remove worktree + delete branch
@@ -1862,11 +1947,11 @@ __ag_cmd_help() {
 
   ${__AG_BOLD}Window layout:${__AG_RESET}
 
-    Each task gets its own tmux window with two panes:
+    Each task gets its own tmux window with one agent pane and shell pane(s):
     ┌──────────────────────────┐
     │     claude (top)         │
     ├──────────────────────────┤
-    │     shell (bottom)       │
+    │ shell │ shell │ shell    │
     └──────────────────────────┘
 
   ${__AG_BOLD}Lifecycle:${__AG_RESET}
@@ -1882,9 +1967,12 @@ __ag_cmd_help() {
     AGENT_CLI              Command to run (default: "claude")
     AGENT_WORKTREE_PARENT  Override worktree location
     AGENT_BRANCH_PREFIX    Branch namespace (default: "agent")
-    AGENT_DEFAULT_LAYOUT   Window layout (default: "main-horizontal")
+    AGENT_DEFAULT_LAYOUT   Layout used by ag layout (default: "main-horizontal")
     AGENT_IDE              IDE command for ag open (default: "code")
     AGENT_IGNORE_BRANCHES  Branches to skip in ag ls when prefix is empty
+    AGENT_SHELL_HEIGHT_PERCENT
+                           Bottom shell region height during spawn (default: 30)
+    AGENT_SHELL_PANES      Number of shell panes below the agent (default: 1)
 
   ${__AG_BOLD}Prepare hook:${__AG_RESET}
 

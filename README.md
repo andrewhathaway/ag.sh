@@ -80,9 +80,11 @@ Set these environment variables before sourcing `ag.sh`:
 | `AGENT_CLI` | `claude` | The command to run in each agent pane |
 | `AGENT_WORKTREE_PARENT` | _(auto)_ | Override where worktrees are stored |
 | `AGENT_BRANCH_PREFIX` | `agent` | Branch namespace (`agent/auth`, `agent/billing`). Set to an empty string for no prefix |
-| `AGENT_DEFAULT_LAYOUT` | `main-horizontal` | Default pane layout for task windows |
+| `AGENT_DEFAULT_LAYOUT` | `main-horizontal` | Default layout used by `ag layout` |
 | `AGENT_IDE` | `code` | IDE command for `ag open` (e.g. `cursor`, `zed`, `windsurf`, `idea`) |
 | `AGENT_IGNORE_BRANCHES` | `main master develop` | Branches to exclude from `ag ls` when prefix is empty |
+| `AGENT_SHELL_HEIGHT_PERCENT` | `30` | Percent of the task window height used for bottom shell panes during spawn |
+| `AGENT_SHELL_PANES` | `1` | Number of shell panes to create side-by-side below the agent pane |
 
 ### Examples
 
@@ -98,11 +100,15 @@ export AGENT_BRANCH_PREFIX=""
 
 # Exclude additional branches from ag ls when using no prefix
 export AGENT_IGNORE_BRANCHES="main master develop trunk release"
+
+# Use a 70/30 agent/shell split with two shell panes underneath
+export AGENT_SHELL_HEIGHT_PERCENT=30
+export AGENT_SHELL_PANES=2
 ```
 
 ## Prepare Worktree Hook
 
-If a repository has an executable `.agrc` file at its root, `ag spawn` runs it once for each new task worktree before creating the tmux window. This lets each repository prepare a fresh task worktree for work, for example:
+If a repository has an executable `.agrc` file at its root that is committed to the repository, `ag spawn` runs it once for each new task worktree before creating the tmux window. This lets each repository prepare a fresh task worktree for work, for example:
 
 ```bash
 #!/usr/bin/env bash
@@ -192,7 +198,7 @@ ag resume auth
 The design is deliberately stateless. There are no databases, lock files, PID files, or config directories. Two existing systems provide the durable state:
 
 - **Git worktrees** are the durable source of truth. They survive tmux crashes, reboots, and terminal closures. `ag ls` and `ag resume` discover agents by parsing `git worktree list --porcelain`.
-- **tmux** is the ephemeral UI layer. It can be destroyed and rebuilt at any time from the worktrees on disk. Pane titles (`agent:<task>`, `shell:<task>`) are used to track which pane belongs to which task.
+- **tmux** is the ephemeral UI layer. It can be destroyed and rebuilt at any time from the worktrees on disk. Pane titles (`agent:<task>`, `shell:<task>`, `shell:<task>:2`) are used to track which pane belongs to which task.
 
 This means recovery is always possible: if tmux dies, `ag resume` scans for worktrees and recreates windows. If a worktree is manually deleted, `git worktree prune` cleans up and `ag ls` adapts.
 
