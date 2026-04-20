@@ -54,7 +54,7 @@ source ~/.ag.sh
 | Command | Description |
 |---|---|
 | `ag` | Show agent status (same as `ag ls`) |
-| `ag spawn <task> [--prompt "..."]` | Create worktree + branch + tmux window, start the agent |
+| `ag spawn <task> [--prompt "..."]` | Create worktree + branch, run optional prepare hook, then start the agent in tmux |
 | `ag spawn <t1> <t2> <t3>` | Spawn multiple agents at once |
 | `ag kill <task> [-f]` | Kill tmux window, keep worktree + branch (pause) |
 | `ag rm <task> [-f]` | Kill window + remove worktree + delete branch (full cleanup) |
@@ -99,6 +99,20 @@ export AGENT_BRANCH_PREFIX=""
 # Exclude additional branches from ag ls when using no prefix
 export AGENT_IGNORE_BRANCHES="main master develop trunk release"
 ```
+
+## Prepare Worktree Hook
+
+If a repository has an executable `.agrc` file at its root, `ag spawn` runs it once for each new task worktree before creating the tmux window. This lets each repository prepare a fresh task worktree for work, for example:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+npm install
+npm run build
+```
+
+Create a `.agrc` file and make it executable using `chmod +x .agrc`. Variables `AG_TASK` (the task name) and `AG_WORKTREE` (the task worktree path) are available to the script when executed as part of the spawning of a new task.
 
 ## Tab completion
 
@@ -175,7 +189,7 @@ ag resume auth
 
 ## Architecture
 
-The design is deliberately stateless. There are no databases, lock files, PID files, or config directories. Two existing systems provide all the state:
+The design is deliberately stateless. There are no databases, lock files, PID files, or config directories. Two existing systems provide the durable state:
 
 - **Git worktrees** are the durable source of truth. They survive tmux crashes, reboots, and terminal closures. `ag ls` and `ag resume` discover agents by parsing `git worktree list --porcelain`.
 - **tmux** is the ephemeral UI layer. It can be destroyed and rebuilt at any time from the worktrees on disk. Pane titles (`agent:<task>`, `shell:<task>`) are used to track which pane belongs to which task.

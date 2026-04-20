@@ -79,6 +79,11 @@
 #   Default: "main master develop"
 #   Example: export AGENT_IGNORE_BRANCHES="main master develop trunk release"
 #
+# Prepare hook:
+#   If an executable .agrc file exists at the root of the task worktree, ag
+#   runs it once before creating the tmux window. This is repository-local, so
+#   each project can prepare new task worktrees differently.
+#
 # ============================================================================
 
 # ----------------------------------------------------------------------------
@@ -94,6 +99,11 @@ AGENT_BRANCH_PREFIX="${AGENT_BRANCH_PREFIX:-agent}"
 AGENT_DEFAULT_LAYOUT="${AGENT_DEFAULT_LAYOUT:-main-horizontal}"
 AGENT_IGNORE_BRANCHES="${AGENT_IGNORE_BRANCHES:-main master develop}"
 AGENT_IDE="${AGENT_IDE:-code}"
+
+# Repository-local hook run once before a newly spawned task is shown in tmux.
+__AG_PREPARE_SCRIPT=".agrc"
+__AG_LAST_WORKTREE_CREATED=0
+__AG_LAST_BRANCH_CREATED=0
 
 # ----------------------------------------------------------------------------
 # Runtime compatibility check
@@ -435,6 +445,9 @@ __ag_ensure_worktree() {
   local task="$1"
   local root wt_path branch base wt_parent
 
+  __AG_LAST_WORKTREE_CREATED=0
+  __AG_LAST_BRANCH_CREATED=0
+
   root="$(__ag_repo_root)"
   branch="$(__ag_branch_name "$task")"
   wt_path="$(__ag_worktree_path "$task")"
@@ -461,9 +474,120 @@ __ag_ensure_worktree() {
     base="$(__ag_default_base)"
     __ag_log "Creating branch '$branch' from '$base' with worktree..."
     git -C "$root" worktree add -b "$branch" "$wt_path" "$base" || return 1
+    __AG_LAST_BRANCH_CREATED=1
   fi
 
+  __AG_LAST_WORKTREE_CREATED=1
   __ag_log "Worktree ready: $wt_path"
+}
+
+# ----------------------------------------------------------------------------
+# __ag_prepare_task_once -- Run the repository-local prepare hook once
+# ----------------------------------------------------------------------------
+# If a task worktree contains an executable .agrc at its root, run it before the
+# tmux window is created. Existing worktrees are treated as already prepared, so
+# the worktree itself remains the durable state.
+#
+# Environment provided to the hook:
+#   AG_TASK      Task name passed to `ag spawn`
+#   AG_WORKTREE  Absolute path to this task's worktree
+#
+# Arguments:
+#   $1 - task name
+# ----------------------------------------------------------------------------
+__ag_prepare_task_once() {
+  local task="$1"
+  local wt_path script bash_bin exit_code
+
+  wt_path="$(__ag_worktree_path "$task")"
+  script="$wt_path/$__AG_PREPARE_SCRIPT"
+
+  # Existing worktrees are considered already prepared.
+  [[ "${__AG_LAST_WORKTREE_CREATED:-0}" -eq 1 ]] || return 0
+
+  if [[ ! -e "$script" ]]; then
+    return 0
+  fi
+
+  if [[ -L "$script" ]]; then
+    __ag_err "Prepare script must be a regular repository file, not a symlink: $script"
+    return 1
+  fi
+
+  if [[ ! -f "$script" ]]; then
+    __ag_err "Prepare script exists but is not a regular file: $script"
+    return 1
+  fi
+
+  if [[ ! -r "$script" ]]; then
+    __ag_err "Prepare script exists but is not readable: $script"
+    return 1
+  fi
+
+  if [[ ! -x "$script" ]]; then
+    __ag_err "Prepare script exists but is not executable: $script"
+    __ag_log "Run 'chmod +x $script' and retry 'ag spawn $task'. Commit the mode change before spawning new tasks."
+    return 1
+  fi
+
+  bash_bin="$(command -v bash)" || {
+    __ag_err "bash is required to run $script but was not found in PATH"
+    return 1
+  }
+
+  __ag_log "Running $__AG_PREPARE_SCRIPT for '$task'..."
+  (
+    cd "$wt_path" || exit 1
+    AG_TASK="$task" AG_WORKTREE="$wt_path" "$bash_bin" "$script"
+  )
+  exit_code=$?
+
+  if [[ $exit_code -ne 0 ]]; then
+    __ag_err "Prepare script failed for '$task' with exit code $exit_code"
+    __ag_log "Fix the script and retry 'ag spawn $task'."
+    return 1
+  fi
+
+  __ag_log "Prepare script completed for '$task'"
+}
+
+# ----------------------------------------------------------------------------
+# __ag_rollback_failed_prepare -- Remove a worktree after prepare fails
+# ----------------------------------------------------------------------------
+# To keep worktrees as the only durable state, a failed prepare must not leave
+# behind a task worktree that looks ready. If the branch was created solely for
+# this spawn, remove it too. Existing branches are preserved.
+#
+# Arguments:
+#   $1 - task name
+# ----------------------------------------------------------------------------
+__ag_rollback_failed_prepare() {
+  local task="$1"
+  local root wt_path branch
+
+  [[ "${__AG_LAST_WORKTREE_CREATED:-0}" -eq 1 ]] || return 0
+
+  root="$(__ag_repo_root)"
+  wt_path="$(__ag_worktree_path "$task")"
+  branch="$(__ag_branch_name "$task")"
+
+  if [[ -d "$wt_path" ]]; then
+    __ag_warn "Removing worktree because prepare failed: $wt_path"
+    git -C "$root" worktree remove --force "$wt_path" || {
+      __ag_err "Failed to remove unprepared worktree: $wt_path"
+      __ag_log "Remove it manually before retrying 'ag spawn $task'."
+      return 1
+    }
+  fi
+
+  if [[ "${__AG_LAST_BRANCH_CREATED:-0}" -eq 1 ]] && __ag_branch_exists "$branch"; then
+    __ag_warn "Deleting branch created for failed prepare: $branch"
+    git -C "$root" branch -D "$branch" >/dev/null 2>&1 || {
+      __ag_warn "Could not delete branch '$branch'"
+    }
+  fi
+
+  git -C "$root" worktree prune >/dev/null 2>&1 || true
 }
 
 # ----------------------------------------------------------------------------
@@ -906,6 +1030,7 @@ __ag_apply_layout() {
 #
 # Behavior:
 #   - Creates the worktree and branch if they don't exist
+#   - Runs optional repository-local .agrc before creating the tmux window
 #   - Creates a tmux window with claude (top) + shell (bottom) panes
 #   - If the task already has a window, switches to it instead
 #   - If outside tmux, attaches to the session after spawning
@@ -967,6 +1092,12 @@ __ag_cmd_spawn() {
 
     # Create worktree (idempotent)
     __ag_ensure_worktree "$task" || continue
+
+    # Run the optional repository-local prepare hook before presenting tmux.
+    if ! __ag_prepare_task_once "$task"; then
+      __ag_rollback_failed_prepare "$task"
+      continue
+    fi
 
     # Check if this task already has a window
     local existing_window
@@ -1754,6 +1885,11 @@ __ag_cmd_help() {
     AGENT_DEFAULT_LAYOUT   Window layout (default: "main-horizontal")
     AGENT_IDE              IDE command for ag open (default: "code")
     AGENT_IGNORE_BRANCHES  Branches to skip in ag ls when prefix is empty
+
+  ${__AG_BOLD}Prepare hook:${__AG_RESET}
+
+    Add an executable $__AG_PREPARE_SCRIPT at the repository root to prepare new task worktrees.
+    ag runs it once before creating the tmux window, from the task worktree root.
 
   ${__AG_BOLD}tmux tips:${__AG_RESET}  (prefix is ctrl-b by default)
 
