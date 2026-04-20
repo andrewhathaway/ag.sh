@@ -108,7 +108,7 @@ export AGENT_SHELL_PANES=2
 
 ## Prepare Worktree Hook
 
-If a repository has an executable `.agrc` file at its root that is committed to the repository, `ag spawn` runs it once for each new task worktree before creating the tmux window. This lets each repository prepare a fresh task worktree for work, for example:
+Prepare a worktree for development (install deps, build) by commiting a `.agrc` script in the root of each repository you're working on. This file must executable, and will run when `ag` spawns a worktree for a new task.
 
 ```bash
 #!/usr/bin/env bash
